@@ -90,7 +90,7 @@ export default function Game({ session }) {
   const difficultyRef = useRef("normal");
 
   const [score, setScore] = useState(0);
-  const [coins, setCoins] = useState(1000000); // Força 1 milhão direto no estado
+  const [coins, setCoins] = useState(0); // Começa do zero
   const [highScore, setHighScore] = useState(0);
   const [lives, setLives] = useState(DIFFICULTIES.normal.lives);
   const livesRef = useRef(DIFFICULTIES.normal.lives);
@@ -141,24 +141,28 @@ export default function Game({ session }) {
     }
   });
 
-  // Força o salvamento de 1 milhão no Supabase e no localStorage logo ao carregar
+  // Carrega as moedas salvas do localStorage (se existirem); senão começa em 0
   useEffect(() => {
     try {
-      localStorage.setItem("pacman-react-coins", "1000000");
+      const savedCoins = localStorage.getItem("pacman-react-coins");
+      if (savedCoins !== null) {
+        setCoins(parseInt(savedCoins, 10) || 0);
+      }
     } catch {}
 
     if (!session?.user) return;
 
-    async function forceOneMillion() {
-      setCoins(1000000);
-
+    async function loadProfile() {
       const { data } = await supabase
         .from("profiles")
-        .select("highscore, unlocked_skins, unlocked_ghost_skins")
+        .select("coins, highscore, unlocked_skins, unlocked_ghost_skins")
         .eq("id", session.user.id)
         .maybeSingle();
 
       if (data) {
+        if (data.coins !== null && data.coins !== undefined) {
+          setCoins(data.coins);
+        }
         if (data.highscore !== null && data.highscore !== undefined) {
           setHighScore(data.highscore);
         }
@@ -183,19 +187,9 @@ export default function Game({ session }) {
           );
         }
       }
-
-      // Atualiza o banco forçando 1M de moedas
-      await supabase.from("profiles").upsert({
-        id: session.user.id,
-        coins: 1000000,
-        highscore: highScore,
-        unlocked_skins: unlockedSkins,
-        unlocked_ghost_skins: unlockedGhostSkins,
-        updated_at: new Date(),
-      });
     }
 
-    forceOneMillion();
+    loadProfile();
   }, [session]);
 
   const saveProfileData = async (updatedData) => {
