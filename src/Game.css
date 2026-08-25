@@ -43,7 +43,15 @@ body {
   height: 14px;
   border-radius: 50%;
   background: #fde047;
-  clip-path: polygon(100% 74%, 44% 50%, 100% 26%, 100% 0, 0 0, 0 100%, 100% 100%);
+  clip-path: polygon(
+    100% 74%,
+    44% 50%,
+    100% 26%,
+    100% 0,
+    0 0,
+    0 100%,
+    100% 100%
+  );
 }
 
 .canvas-shell {
