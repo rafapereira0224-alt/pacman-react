@@ -89,9 +89,28 @@ export default function Game({ session }) {
   const deathAnimRef = useRef(null);
   const difficultyRef = useRef("normal");
 
+  // Refs para controle de Touch / Swipe no celular
+  const touchStartRef = useRef({ x: 0, y: 0 });
+
   const [score, setScore] = useState(0);
-  const [coins, setCoins] = useState(0); // Começa do zero
-  const [highScore, setHighScore] = useState(0);
+  const [coins, setCoins] = useState(() => {
+    try {
+      const saved = localStorage.getItem("pacman-react-coins");
+      return saved !== null ? parseInt(saved, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  const [highScore, setHighScore] = useState(() => {
+    try {
+      const saved = localStorage.getItem("pacman-react-highscore");
+      return saved !== null ? parseInt(saved, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  });
+
   const [lives, setLives] = useState(DIFFICULTIES.normal.lives);
   const livesRef = useRef(DIFFICULTIES.normal.lives);
   const [level, setLevel] = useState(1);
@@ -141,13 +160,14 @@ export default function Game({ session }) {
     }
   });
 
-  // Carrega as moedas salvas do localStorage (se existirem); senão começa em 0
+  // Sincroniza dados com o Supabase e LocalStorage ao carregar
   useEffect(() => {
     try {
       const savedCoins = localStorage.getItem("pacman-react-coins");
-      if (savedCoins !== null) {
-        setCoins(parseInt(savedCoins, 10) || 0);
-      }
+      if (savedCoins !== null) setCoins(parseInt(savedCoins, 10) || 0);
+
+      const savedHs = localStorage.getItem("pacman-react-highscore");
+      if (savedHs !== null) setHighScore(parseInt(savedHs, 10) || 0);
     } catch {}
 
     if (!session?.user) return;
@@ -162,9 +182,11 @@ export default function Game({ session }) {
       if (data) {
         if (data.coins !== null && data.coins !== undefined) {
           setCoins(data.coins);
+          localStorage.setItem("pacman-react-coins", data.coins);
         }
         if (data.highscore !== null && data.highscore !== undefined) {
           setHighScore(data.highscore);
+          localStorage.setItem("pacman-react-highscore", data.highscore);
         }
         if (
           Array.isArray(data.unlocked_skins) &&
@@ -193,6 +215,19 @@ export default function Game({ session }) {
   }, [session]);
 
   const saveProfileData = async (updatedData) => {
+    let newCoinsVal =
+      updatedData.coins !== undefined ? updatedData.coins : coins;
+    let newHsVal =
+      updatedData.highscore !== undefined ? updatedData.highscore : highScore;
+    let newSkinsVal =
+      updatedData.unlocked_skins !== undefined
+        ? updatedData.unlocked_skins
+        : unlockedSkins;
+    let newGhostSkinsVal =
+      updatedData.unlocked_ghost_skins !== undefined
+        ? updatedData.unlocked_ghost_skins
+        : unlockedGhostSkins;
+
     if (updatedData.coins !== undefined) setCoins(updatedData.coins);
     if (updatedData.highscore !== undefined)
       setHighScore(updatedData.highscore);
@@ -204,6 +239,8 @@ export default function Game({ session }) {
     try {
       if (updatedData.coins !== undefined)
         localStorage.setItem("pacman-react-coins", updatedData.coins);
+      if (updatedData.highscore !== undefined)
+        localStorage.setItem("pacman-react-highscore", updatedData.highscore);
       if (updatedData.unlocked_skins !== undefined)
         localStorage.setItem(
           "pacman-react-unlocked-skins",
@@ -219,19 +256,10 @@ export default function Game({ session }) {
     if (session?.user) {
       await supabase.from("profiles").upsert({
         id: session.user.id,
-        coins: updatedData.coins !== undefined ? updatedData.coins : coins,
-        highscore:
-          updatedData.highscore !== undefined
-            ? updatedData.highscore
-            : highScore,
-        unlocked_skins:
-          updatedData.unlocked_skins !== undefined
-            ? updatedData.unlocked_skins
-            : unlockedSkins,
-        unlocked_ghost_skins:
-          updatedData.unlocked_ghost_skins !== undefined
-            ? updatedData.unlocked_ghost_skins
-            : unlockedGhostSkins,
+        coins: newCoinsVal,
+        highscore: newHsVal,
+        unlocked_skins: newSkinsVal,
+        unlocked_ghost_skins: newGhostSkinsVal,
         updated_at: new Date(),
       });
     }
@@ -253,7 +281,6 @@ export default function Game({ session }) {
       try {
         localStorage.setItem("pacman-react-skin", skin.id);
       } catch {}
-
       sfx.extraLife();
     }
   };
@@ -274,7 +301,6 @@ export default function Game({ session }) {
       try {
         localStorage.setItem("pacman-react-ghost-skin", skin.id);
       } catch {}
-
       sfx.extraLife();
     }
   };
@@ -362,6 +388,7 @@ export default function Game({ session }) {
     setStatus("playing");
   };
 
+  // Controles por Teclado
   useEffect(() => {
     const onKeyDown = (e) => {
       const dir = DIRS[e.key];
@@ -403,6 +430,40 @@ export default function Game({ session }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [level]);
 
+  // Controles por Touch / Swipe (Celular)
+  const handleTouchStart = (e) => {
+    if (e.touches && e.touches.length > 0) {
+      touchStartRef.current = {
+        x: e.touches[0].clientX, // <-- Garantindo o [0] aqui
+        y: e.touches[0].clientY, // <-- E aqui também
+      };
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    if (
+      statusRef.current !== "playing" ||
+      !e.changedTouches ||
+      e.changedTouches.length === 0
+    )
+      return;
+    const deltaX = e.changedTouches[0].clientX - touchStartRef.current.x;
+    const deltaY = e.changedTouches[0].clientY - touchStartRef.current.y;
+    const minSwipeDistance = 30;
+
+    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+      if (Math.abs(deltaX) > minSwipeDistance) {
+        stateRef.current.player.nextDir =
+          deltaX > 0 ? DIRS.ArrowRight : DIRS.ArrowLeft;
+      }
+    } else {
+      if (Math.abs(deltaY) > minSwipeDistance) {
+        stateRef.current.player.nextDir =
+          deltaY > 0 ? DIRS.ArrowDown : DIRS.ArrowUp;
+      }
+    }
+  };
+
   const triggerLifeLost = () => {
     sfx.death();
     setStatus("dying");
@@ -423,26 +484,34 @@ export default function Game({ session }) {
   };
 
   const addScore = (points) => {
-    setScore((prev) => {
-      const next = prev + points;
-      const newCoinsTotal = coins + Math.floor(points / 10);
+    setScore((prevScore) => {
+      const nextScore = prevScore + points;
+      const earnedCoins = Math.floor(points / 10);
 
-      setHighScore((hs) => {
-        const newHs = next > hs ? next : hs;
-        saveProfileData({
-          coins: newCoinsTotal,
-          highscore: newHs,
+      // Atualiza Moedas de forma segura usando função de callback para pegar o estado mais recente
+      setCoins((prevCoins) => {
+        const updatedCoins = prevCoins + earnedCoins;
+
+        // Atualiza Recorde
+        setHighScore((prevHs) => {
+          const updatedHs = nextScore > prevHs ? nextScore : prevHs;
+          saveProfileData({
+            coins: updatedCoins,
+            highscore: updatedHs,
+          });
+          return updatedHs;
         });
-        return newHs;
+
+        return updatedCoins;
       });
 
-      if (!extraLifeGivenRef.current && next >= EXTRA_LIFE_SCORE) {
+      if (!extraLifeGivenRef.current && nextScore >= EXTRA_LIFE_SCORE) {
         extraLifeGivenRef.current = true;
         livesRef.current += 1;
         setLives(livesRef.current);
         sfx.extraLife();
       }
-      return next;
+      return nextScore;
     });
   };
 
@@ -793,7 +862,7 @@ export default function Game({ session }) {
       nextMaze: "Próximo mapa",
       nextLvlBtn: "Ir pro próximo nível",
       replayLvlBtn: "Jogar de novo",
-      hint: "Coma as pílulas de poder para assustar os fantasmas!",
+      hint: "Coma as pílulas de poder para assustar os fantasmas! (Arraste o dedo ou use o teclado)",
       tabPacman: "Skins Pac-Man",
       tabGhosts: "Skins Fantasmas",
       buy: "Comprar",
@@ -826,7 +895,7 @@ export default function Game({ session }) {
       nextMaze: "Next maze",
       nextLvlBtn: "Go to next level",
       replayLvlBtn: "Replay level",
-      hint: "Eat the power pellets to frighten the ghosts!",
+      hint: "Eat the power pellets to frighten the ghosts! (Swipe or use keyboard)",
       tabPacman: "Pac-Man Skins",
       tabGhosts: "Ghost Skins",
       buy: "Buy",
@@ -860,7 +929,11 @@ export default function Game({ session }) {
         </span>
       </div>
 
-      <div className="canvas-shell">
+      <div
+        className="canvas-shell"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         <canvas ref={canvasRef} className="game-canvas" />
 
         {status === "menu" && (
